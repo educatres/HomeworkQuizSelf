@@ -1,0 +1,17 @@
+import { describe, expect, it } from 'vitest'
+import { allocateByLargestRemainder } from '../features/quiz-generation/plan'
+import { validateStudentExam, validateSubmission } from './validation'
+import { gradeObjective } from './scoring'
+import { generateStudentHtml, generateTeacherAnswerHtml } from '../features/student-export/generator'
+import type { StudentExam, TeacherAnswerKey } from './types'
+
+const exam: StudentExam = { schema_version: '1.0', batch_id: 'B1', student_id: 'S1', quiz_id: 'QZ1', exam_version: 1, public_quiz_hash: 'hash', course_title: '課程', assignment_title: '作業', language: 'zh-TW', total_points: 10, questions: [{ question_id: 'Q001', type: 'single_choice', level: 'comprehension', difficulty: 'basic', question: '流程？', options: [{ id: 'A', text: '正確' }, { id: 'B', text: '錯誤' }, { id: 'C', text: '錯誤' }, { id: 'D', text: '錯誤' }], points: 4 }, { question_id: 'Q002', type: 'multiple_choice', level: 'reasoning', difficulty: 'intermediate', question: '哪些？', options: [{ id: 'A', text: '對' }, { id: 'B', text: '對' }, { id: 'C', text: '錯' }, { id: 'D', text: '錯' }], points: 6 }] }
+const key: TeacherAnswerKey = { schema_version: '1.0', batch_id: 'B1', student_id: 'S1', quiz_id: 'QZ1', exam_version: 1, public_quiz_hash: 'hash', source_sha256: 'source', questions: [{ question_id: 'Q001', answer: 'A', explanation: '', concept: '', source_refs: [], review_status: 'approved' }, { question_id: 'Q002', answer: ['A', 'B'], explanation: '', concept: '', source_refs: [], review_status: 'approved' }] }
+
+describe('quiz domain', () => {
+  it('allocates exact quotas with largest remainder', () => expect(Object.values(allocateByLargestRemainder(10, { a: 40, b: 20, c: 40 })).reduce((a, b) => a + b, 0)).toBe(10))
+  it('rejects duplicate question ids and mismatched submissions', () => { expect(validateStudentExam({ ...exam, questions: [exam.questions[0], exam.questions[0]] }).valid).toBe(false); expect(validateSubmission({ ...({ schema_version: '1.0', batch_id: 'other', student_id: 'S1', quiz_id: 'QZ1', public_quiz_hash: 'hash', answers: [] }) }, exam).valid).toBe(false) })
+  it('grades objective questions with exact set equality', () => { const result = gradeObjective(exam, key, { schema_version: '1.0', batch_id: 'B1', student_id: 'S1', quiz_id: 'QZ1', exam_version: 1, public_quiz_hash: 'hash', answers: [{ question_id: 'Q001', value: 'A' }, { question_id: 'Q002', value: ['B', 'A'] }] }); expect(result.total_score).toBe(10); expect(result.per_question.every(q => !q.review_required)).toBe(true) })
+  it('keeps answer and rubric data out of standalone student HTML', () => { const defaultHtml = generateStudentHtml(exam); expect(defaultHtml).toContain('S1_QZ1_answer_Student.json'); const html = generateStudentHtml(exam, 'student_Student.json'); expect(html).toContain('流程？'); expect(html).not.toContain('source_refs'); expect(html).not.toContain('正確答案'); expect(html).toContain('public_quiz_hash'); expect(html).toContain('student_Student.json'); expect(html).toContain('SUBMISSION_FILE_NAME'); expect(html).toContain('showSaveFilePicker'); expect(html).not.toContain('_answers.md'); const script = html.match(/<script>([\s\S]*)<\/script>/)?.[1] ?? ''; expect(() => new Function(script)).not.toThrow(); expect((html.match(/<button/g) ?? [])).toHaveLength(1) })
+  it('embeds the exam and teacher key in answer HTML', () => { const html = generateTeacherAnswerHtml(exam, key); expect(html).toContain('id="teacher-key"'); expect(html).toContain('id="student-exam"'); expect(html).toContain('"public_quiz_hash":"hash"') })
+})
