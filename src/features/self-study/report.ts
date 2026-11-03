@@ -28,7 +28,40 @@ function distribution<T extends string>(title: string, values: T[], labels: Reco
     <tbody>${rows.join('')}</tbody></table></section>`
 }
 
-export function makeStudyReport(exam: StudentExam, fileName: string, grades: StudyGrade[], summary: string | undefined, demo: boolean) {
+function questionDetails(exam: StudentExam, answers: Record<string, string | string[]>, grades: StudyGrade[]) {
+  const gradesById = new Map(grades.map(grade => [grade.question_id, grade]))
+  return exam.questions.map((question, index) => {
+    const answer = answers[question.question_id]
+    const selected = Array.isArray(answer) ? answer : answer?.trim() ? [answer] : []
+    const grade = gradesById.get(question.question_id)
+    const optionText = (id: string) => {
+      const option = question.options?.find(item => item.id === id)
+      return option ? `${id}. ${option.text}` : id
+    }
+    const answerText = question.type === 'short_answer' ? selected.join('\n') : selected.map(optionText).join('\n')
+    const options = question.options?.map(option => `<li>${escapeHtml(optionText(option.id))}</li>`).join('')
+    const result = grade?.earned_points == null ? '待評' : `${grade.earned_points} / ${question.points} 分`
+    return `<article class="question-detail">
+      <h3>第 ${index + 1} 題 · ${types[question.type]} · ${levels[question.level]}</h3>
+      <p class="answer-text">${escapeHtml(question.question)}</p>
+      ${options ? `<ul class="question-options">${options}</ul>` : ''}
+      <dl>
+        <dt>你的作答</dt><dd class="answer-text">${escapeHtml(answerText || '未作答')}</dd>
+        <dt>批改結果</dt><dd>${result}</dd>
+        ${grade?.feedback ? `<dt>逐題評語</dt><dd class="answer-text">${escapeHtml(grade.feedback)}</dd>` : ''}
+      </dl>
+    </article>`
+  }).join('')
+}
+
+export function makeStudyReport(
+  exam: StudentExam,
+  fileName: string,
+  answers: Record<string, string | string[]>,
+  grades: StudyGrade[],
+  summary: string | undefined,
+  demo: boolean,
+) {
   const confirmed = grades.filter(grade => grade.earned_points !== null)
   const pending = exam.questions.length - confirmed.length
   const score = round(confirmed.reduce((total, grade) => total + (grade.earned_points ?? 0), 0))
@@ -48,7 +81,13 @@ export function makeStudyReport(exam: StudentExam, fileName: string, grades: Stu
   h1 { margin-bottom: .3rem; } h2 { margin: 0 0 .65rem; font-size: 1.2rem; }
   p { margin: .35rem 0; overflow-wrap: anywhere; }
   header, section { margin-bottom: 1rem; }
-  .summary { white-space: pre-wrap; }
+  .summary, .answer-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+  .question-detail { border-top: 1px solid #cbd5e1; padding: .65rem 0; }
+  .question-detail h3 { margin: 0 0 .4rem; font-size: 1rem; }
+  .question-options { list-style: none; padding-left: 1rem; overflow-wrap: anywhere; }
+  .question-detail dl { margin: .6rem 0 0; }
+  .question-detail dt { font-weight: 700; break-after: avoid; }
+  .question-detail dd { margin: .15rem 0 .45rem; }
   .charts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .8rem; }
   .distribution { border: 1px solid #94a3b8; border-radius: .4rem; padding: .7rem; break-inside: avoid; }
   .bar-cell { width: 36%; }
@@ -62,7 +101,7 @@ export function makeStudyReport(exam: StudentExam, fileName: string, grades: Stu
   @media print {
     body { margin: 0; padding: 0; max-width: none; font-size: 10.5pt; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
     button { display: none; }
-    h2 { break-after: avoid; }
+    h2, h3 { break-after: avoid; }
   }
 </style>
 </head>
@@ -77,6 +116,7 @@ export function makeStudyReport(exam: StudentExam, fileName: string, grades: Stu
 ${distribution('題型配比', exam.questions.map(question => question.type), types)}
 ${distribution('理解層次比例分配', exam.questions.map(question => question.level), levels)}
 </div>
+<section><h2>題目與作答結果</h2>${questionDetails(exam, answers, grades)}</section>
 </body>
 </html>`
 }
