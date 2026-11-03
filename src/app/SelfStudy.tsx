@@ -1,3 +1,4 @@
+﻿import { readStudyPlan, StudyPlanPanel } from './StudyPlanPanel'
 import { EXAMPLE_BUTTONS, EXAMPLE_SETS, type ExampleKind } from '../features/examples/assignments'
 import { useEffect, useRef, useState } from 'react'
 import { round } from '../domain/scoring'
@@ -21,6 +22,7 @@ const providers: Record<AppProvider, string> = {
 const defaults: Record<AppProvider, string> = {
   google: GOOGLE_DEFAULT_MODEL, cgu: CGU_DEFAULT_MODEL, openai: '', xai: '', mock: '',
 }
+const studyPlanKey = 'aihwq.selfStudy.plan.v1'
 const settingsKey = 'aihwq.selfStudy.settings.v1'
 const keyName = 'aihwq.selfStudy.key.v1'
 const sessionId = 'self-study-active'
@@ -57,6 +59,10 @@ export default function SelfStudy() {
   const [apiKey, setApiKey] = useState(() => readStorage(keyName))
   const [remember, setRemember] = useState(() => Boolean(readStorage(keyName)))
   const [models, setModels] = useState<ModelInfo[]>([])
+  const [studyPlan, setStudyPlan] = useState(() => {
+    try { return readStudyPlan(JSON.parse(readStorage(studyPlanKey))) }
+    catch { return readStudyPlan(DEFAULT_PLAN) }
+  })
   const [study, setStudy] = useState<Study>()
   const [loaded, setLoaded] = useState(false)
   const [busy, setBusy] = useState('')
@@ -95,6 +101,11 @@ export default function SelfStudy() {
       else localStorage.removeItem(keyName)
     } catch { setStorageWarning('無法儲存 AI 設定，請保持本頁開啟。') }
   }, [connection, apiKey, remember])
+
+  useEffect(() => {
+    try { localStorage.setItem(studyPlanKey, JSON.stringify(studyPlan)) }
+    catch { setStorageWarning('無法儲存命題設定，請保持本頁開啟。') }
+  }, [studyPlan])
 
   function client() {
     return providerFor({ provider, apiKey: apiKey.trim(), model: connection.model.trim(), baseUrl: DEFAULT_BASE_URLS[provider] })
@@ -149,6 +160,7 @@ export default function SelfStudy() {
       const example = study.example ? EXAMPLE_SETS[study.example] : undefined
       const plan = {
         ...DEFAULT_PLAN,
+        ...studyPlan,
         batch_id: crypto.randomUUID(),
         course_title: example?.course_title ?? '作業自我練習',
         assignment_title: example?.assignment_title ?? '我的作業',
@@ -253,7 +265,6 @@ export default function SelfStudy() {
         {study.example && <details><summary>查看範例內容</summary><pre className="study-example-text">{study.source.text}</pre></details>}
         {study.source.warnings.map(warning => <p className="muted" key={warning}>{warning}</p>)}
         <div className="study-actions">
-          {!exam && <button className="primary-button" disabled={disabled || !canConnect} onClick={() => void generate()}>產生練習</button>}
           <button className="ghost-button" disabled={disabled} onClick={() => {
             if (window.confirm('清除本次練習的作業、題目、答案及批改結果？')) { setStudy(undefined); setNotice('') }
           }}>清除練習</button>
@@ -264,9 +275,15 @@ export default function SelfStudy() {
         </label>
       </div>}
     </section>
+    <section className="panel study-panel">
+      <h2>3. 題型配比與理解層次</h2>
+      <StudyPlanPanel plan={studyPlan} setPlan={setStudyPlan} disabled={disabled} />
+      {!exam ? <button className="primary-button" disabled={disabled || !study || !canConnect} onClick={() => void generate()}>產生練習</button>
+        : <p className="muted">變更會套用到下一次出題。</p>}
+    </section>
     <div className="study-status" role="status" aria-live="polite">{[busy, notice, storageWarning].filter(Boolean).join(' ')}</div>
     {exam && <section className="panel study-panel">
-      <h2>3. 作答與批改 {study.demo && <small>（離線示範）</small>}</h2>
+      <h2>4. 作答與批改 {study.demo && <small>（離線示範）</small>}</h2>
       <form onSubmit={e => {
         e.preventDefault()
         if (!grades && !window.confirm('確認送出批改？送出後這次作答會鎖定。')) return

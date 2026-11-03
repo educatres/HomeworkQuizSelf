@@ -22,7 +22,7 @@ function toValues(units: number[]): TriplePercentageValues {
   return [units[0] * 5, units[1] * 5, units[2] * 5]
 }
 
-function normalizeValues(values: readonly number[]): TriplePercentageValues {
+export function normalizeValues(values: readonly number[]): TriplePercentageValues {
   const units = values.slice(0, 3).map(value => toUnit(Number.isFinite(value) ? value : 0))
   while (units.length < 3) units.push(0)
   const total = units[0] + units[1] + units[2]

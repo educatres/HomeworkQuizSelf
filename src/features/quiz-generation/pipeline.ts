@@ -1,9 +1,9 @@
-import { publicQuizHash } from '../../domain/canonical'
+﻿import { publicQuizHash } from '../../domain/canonical'
 import { validateStudentExam } from '../../domain/validation'
 import type { BatchPlan, Difficulty, Level, PublicQuestion, QuestionType, RubricCriterion, SourceDocument, SourceRef, TeacherAnswerKey } from '../../domain/types'
 import type { LlmProvider } from '../../providers/types'
 import { buildQuestionPrompt, buildQuestionRepairPrompt, SYSTEM_PROMPT } from './prompts'
-import { makeQuotas } from './plan'
+import { allocateByLargestRemainder, makeQuotas } from './plan'
 import { detectPromptInjectionInSource } from '../../domain/promptSecurity'
 
 const QUESTION_TYPES: QuestionType[] = ['single_choice', 'multiple_choice', 'short_answer']
@@ -107,18 +107,24 @@ export async function generateQuestionsByPlan(source: SourceDocument, plan: Batc
   const quotas = makeQuotas(plan)
   const questions: PublicQuestion[] = []
   const keys: TeacherAnswerKey['questions'] = []
-  for (const [type, count] of Object.entries(quotas.types)) {
-    if (!count) continue
-    const questionType = type as QuestionType
-    const level = Object.entries(quotas.levels).sort((a, b) => b[1] - a[1])[0][0] as Level
-    const { validated } = await completeValidatedQuestions(source, plan, provider, questionType, level, count, questions.map(q => q.question), retryHint)
-    validated.forEach(({ raw, source_refs }) => {
-      const questionId = `Q${String(questions.length + 1).padStart(2, '0')}`
-      const options = questionType === 'short_answer' ? undefined : raw.options.map((option: any) => ({ id: String(option.id), text: String(option.text) }))
-      questions.push({ question_id: questionId, type: questionType, level, difficulty: raw.difficulty as Difficulty, question: raw.question, options, points: 1 })
-      keys.push({ question_id: questionId, answer: raw.answer, explanation: raw.explanation, concept: raw.concept, source_refs, rubric: questionType === 'short_answer' ? raw.rubric as RubricCriterion[] : undefined, review_status: 'draft' })
-    })
-    onProgress?.(questions.length, plan.question_count)
+  const remainingLevels = { ...quotas.levels }
+  for (const questionType of QUESTION_TYPES) {
+    const typeCount = quotas.types[questionType]
+    if (!typeCount) continue
+    const levelCounts = allocateByLargestRemainder(typeCount, remainingLevels)
+    for (const level of LEVELS) {
+      const count = levelCounts[level]
+      if (!count) continue
+      remainingLevels[level] -= count
+      const { validated } = await completeValidatedQuestions(source, plan, provider, questionType, level, count, questions.map(q => q.question), retryHint)
+      validated.forEach(({ raw, source_refs }) => {
+        const questionId = `Q${String(questions.length + 1).padStart(2, '0')}`
+        const options = questionType === 'short_answer' ? undefined : raw.options.map((option: any) => ({ id: String(option.id), text: String(option.text) }))
+        questions.push({ question_id: questionId, type: questionType, level, difficulty: raw.difficulty as Difficulty, question: raw.question, options, points: 1 })
+        keys.push({ question_id: questionId, answer: raw.answer, explanation: raw.explanation, concept: raw.concept, source_refs, rubric: questionType === 'short_answer' ? raw.rubric as RubricCriterion[] : undefined, review_status: 'draft' })
+      })
+      onProgress?.(questions.length, plan.question_count)
+    }
   }
   return { questions, keys }
 }

@@ -73,3 +73,30 @@ describe('AI format repair', () => {
     expect(prompts).toHaveLength(3)
   })
 })
+
+it('honors both question type and comprehension level quotas across the quiz', async () => {
+  const configured = {
+    ...plan,
+    question_count: 10,
+    type_weights: { single_choice: 60, multiple_choice: 40, short_answer: 0 },
+    level_weights: { comprehension: 40, reasoning: 30, design_tradeoff: 30 },
+  }
+  const provider = providerReturning({})
+  provider.complete = async prompt => {
+    const [, count, type, level] = prompt.match(/恰好 (\d+) 題；題型固定為 (\w+)；理解層次固定為 (\w+)/)!
+    const questions = Array.from({ length: Number(count) }, (_, index) => ({
+      question_id: `Q0${index + 1}`, type, level, difficulty: 'basic',
+      question: `Explain the ${type} ${level} scenario ${index}.`,
+      options: ['A', 'B', 'C', 'D'].map(id => ({ id, text: id })),
+      answer: type === 'single_choice' ? 'A' : ['A', 'B'],
+      explanation: 'Execution order', concept: 'Flow', source_refs: [{ block_id: 'B001' }],
+    }))
+    return { text: JSON.stringify({ questions }) }
+  }
+  const { questions } = await generateQuestionsByPlan(source, configured, provider)
+  expect(questions.filter(question => question.type === 'single_choice')).toHaveLength(6)
+  expect(questions.filter(question => question.type === 'multiple_choice')).toHaveLength(4)
+  expect(questions.filter(question => question.level === 'comprehension')).toHaveLength(4)
+  expect(questions.filter(question => question.level === 'reasoning')).toHaveLength(3)
+  expect(questions.filter(question => question.level === 'design_tradeoff')).toHaveLength(3)
+})
