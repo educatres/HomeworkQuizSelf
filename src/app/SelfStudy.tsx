@@ -1,4 +1,5 @@
-﻿import { useEffect, useRef, useState } from 'react'
+import { EXAMPLE_BUTTONS, EXAMPLE_SETS, type ExampleKind } from '../features/examples/assignments'
+import { useEffect, useRef, useState } from 'react'
 import { round } from '../domain/scoring'
 import { DEFAULT_PLAN, type QuizBundle, type SourceDocument } from '../domain/types'
 import { initialGrades, makeSubmission, gradeWritten, summarizeStudy, type StudyGrade } from '../features/self-study/grading'
@@ -41,6 +42,7 @@ function readConnection() {
 
 type Study = {
   source: SourceDocument
+  example?: ExampleKind
   bundle?: QuizBundle
   demo?: boolean
   answers: Record<string, string | string[]>
@@ -128,10 +130,29 @@ export default function SelfStudy() {
     })
   }
 
+  async function loadExample(kind: ExampleKind) {
+    if (study?.example === kind) return
+    if (study && !window.confirm('載入範例會取代目前的練習，確定要繼續嗎？')) return
+    await run('載入範例中…', async () => {
+      const example = EXAMPLE_SETS[kind]
+      const [sample] = example.students
+      const file = new File([sample.text], `${sample.id}_assignment.${example.extension}`)
+      const source = await parseFile(file)
+      setStudy({ source, example: kind, answers: {} })
+      setNotice('已載入範例。準備好後可按「產生練習」。')
+    })
+  }
+
   async function generate() {
     if (!study || study.bundle || !canConnect) return
     await run('AI 正在準備題目與批改參考…', async () => {
-      const plan = { ...DEFAULT_PLAN, batch_id: crypto.randomUUID(), course_title: '作業自我練習', assignment_title: '我的作業' }
+      const example = study.example ? EXAMPLE_SETS[study.example] : undefined
+      const plan = {
+        ...DEFAULT_PLAN,
+        batch_id: crypto.randomUUID(),
+        course_title: example?.course_title ?? '作業自我練習',
+        assignment_title: example?.assignment_title ?? '我的作業',
+      }
       const demo = provider === 'mock'
       const bundle = demo ? await makeDemoBundle(study.source, plan, 'self')
         : await generateExamWithProvider(study.source, plan, 'self', client(), (completed, total) => setBusy(`出題中（${completed}/${total}）…`))
@@ -215,8 +236,21 @@ export default function SelfStudy() {
     </section>
     <section className="panel study-panel">
       <h2>2. 上傳作業並出題</h2>
+      <div className="study-examples">
+        <h3>內建作業範例</h3>
+        <p>點選一份即可載入，適合試用或課堂示範。想先練習操作，可在上方選擇「離線示範」。</p>
+        <div className="study-actions">
+          {EXAMPLE_BUTTONS.map(({ kind, label }) => (
+            <button type="button" className={study?.example === kind ? 'primary-button' : 'ghost-button'}
+              key={kind} disabled={disabled || study?.example === kind} onClick={() => void loadExample(kind)}>
+              {study?.example === kind ? `已載入 ${label}` : label}
+            </button>
+          ))}
+        </div>
+      </div>
       {study ? <>
-        <p>{study.source.file_name}</p>
+        <p>{study.example ? EXAMPLE_SETS[study.example].assignment_title + ' · ' : ''}{study.source.file_name}</p>
+        {study.example && <details><summary>查看範例內容</summary><pre className="study-example-text">{study.source.text}</pre></details>}
         {study.source.warnings.map(warning => <p className="muted" key={warning}>{warning}</p>)}
         <div className="study-actions">
           {!exam && <button className="primary-button" disabled={disabled || !canConnect} onClick={() => void generate()}>產生練習</button>}
@@ -273,4 +307,3 @@ export default function SelfStudy() {
     </section>}
   </main>
 }
-
