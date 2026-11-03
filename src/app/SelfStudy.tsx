@@ -1,3 +1,4 @@
+import { makeStudyReport, openStudyReport } from '../features/self-study/report'
 import { readStudyPlan, StudyPlanPanel } from './StudyPlanPanel'
 import { EXAMPLE_BUTTONS, EXAMPLE_SETS, type ExampleKind } from '../features/examples/assignments'
 import { useEffect, useRef, useState } from 'react'
@@ -215,6 +216,11 @@ export default function SelfStudy() {
     })
   }
 
+  function exportReport(download: boolean) {
+    if (!study || !exam || !grades) return
+    openStudyReport(makeStudyReport(exam, study.source.file_name, grades, study.summary, Boolean(study.demo)), download)
+  }
+
   function answer(questionId: string, value: string | string[]) {
     setStudy(current => current && !current.grades ? { ...current, answers: { ...current.answers, [questionId]: value } } : current)
   }
@@ -334,6 +340,10 @@ export default function SelfStudy() {
           <h3>{pending ? '目前已確認分數' : '總分'} {round(grades.reduce((sum, row) => sum + (row.earned_points ?? 0), 0))} / {pending ? round(grades.reduce((sum, row) => sum + (row.earned_points === null ? 0 : row.max_points), 0)) : exam.total_points}</h3>
           {pending > 0 && <p>另有 {pending} 題待評，尚無完整總分。</p>}
           {study.summary && <><h3>學習總評</h3><p>{study.summary}</p></>}
+          <div className="study-actions">
+            <button type="button" className="ghost-button" disabled={disabled} onClick={() => exportReport(true)}>下載報告（HTML）</button>
+            <button type="button" className="ghost-button" disabled={disabled} onClick={() => exportReport(false)}>開啟列印版</button>
+          </div>
         </div>}
         {(!grades || (!study.demo && (pending > 0 || !study.summary))) &&
           <button className="primary-button" disabled={disabled || (!study.demo && (!canConnect || provider === 'mock'))}>{!grades ? '送出批改' : pending ? '重試待評題' : '重試產生總評'}</button>}
