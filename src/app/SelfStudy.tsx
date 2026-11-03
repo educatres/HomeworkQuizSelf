@@ -4,7 +4,7 @@ import { EXAMPLE_BUTTONS, EXAMPLE_SETS, type ExampleKind } from '../features/exa
 import { useEffect, useRef, useState } from 'react'
 import { round } from '../domain/scoring'
 import { DEFAULT_PLAN, type QuizBundle, type SourceDocument } from '../domain/types'
-import { initialGrades, makeSubmission, gradeWritten, summarizeStudy, type StudyGrade } from '../features/self-study/grading'
+import { initialGrades, makeSubmission, gradeWritten, explainStudyAnswer, needsStudyFeedback, studyFeedback, summarizeStudy, type StudyGrade } from '../features/self-study/grading'
 import { makeDemoBundle } from '../features/quiz-generation/mockGeneration'
 import { generateExamWithProvider } from '../features/quiz-generation/pipeline'
 import { extensionOf, parseFile, SUPPORTED_EXTENSIONS } from '../parsers/text'
@@ -92,6 +92,7 @@ export default function SelfStudy() {
   const exam = study?.bundle?.exam
   const grades = study?.grades
   const pending = grades?.filter(grade => grade.earned_points === null).length ?? 0
+  const missingFeedback = grades?.some((grade, index) => exam && needsStudyFeedback(grade, exam.questions[index].type)) ?? false
   const canConnect = provider === 'mock' || Boolean(apiKey.trim() && connection.model.trim())
 
   useEffect(() => {
@@ -207,6 +208,18 @@ export default function SelfStudy() {
       const ai = study.demo ? undefined : client()
       setStudy({ ...study, grades: next })
       for (const [index, row] of next.entries()) {
+        const question = bundle.exam.questions[index]
+        if (needsStudyFeedback(row, question.type)) {
+          if (!ai) continue
+          setBusy(`產生 ${row.question_id} 的理解評語…`)
+          try {
+            next[index] = { ...row, understanding_feedback: await explainStudyAnswer(bundle, submission, row, ai) }
+            setStudy({ ...study, grades: [...next] })
+          } catch (error) {
+            setNotice(`部分逐題評語未能產生，可重試。${errorMessage(error)}`)
+          }
+          continue
+        }
         if (row.earned_points !== null) continue
         setBusy(`批改 ${row.question_id}…`)
         try { next[index] = await gradeWritten(bundle, submission, row, ai) }
@@ -215,7 +228,7 @@ export default function SelfStudy() {
         }
         setStudy({ ...study, grades: [...next] })
       }
-      if (ai && next.every(row => row.earned_points !== null)) {
+      if (ai && next.every((row, index) => row.earned_points !== null && !needsStudyFeedback(row, bundle.exam.questions[index].type))) {
         setBusy('產生學習總評…')
         try {
           const summary = await summarizeStudy(next, ai)
@@ -348,7 +361,7 @@ export default function SelfStudy() {
             {result && <div className="study-feedback">
               <strong>{result.earned_points === null ? '待評' : `${result.earned_points} / ${result.max_points} 分`}</strong>
               {result.earned_points === null && <p>這題尚無可靠分數。</p>}
-              <p>{result.feedback}</p>
+              <p>{studyFeedback(result, question.type, Boolean(study.demo))}</p>
               {result.rubric_assessment && <ul>{result.rubric_assessment.map(item => <li key={item.criterion_id}>{item.criterion_id}（{round(item.earned_points)} 分）{item.reason}</li>)}</ul>}
               {reference && !busy && <details><summary>查看參考答案與解析</summary><p>{Array.isArray(reference.answer) ? reference.answer.join('、') : reference.answer}</p><p>{reference.explanation}</p></details>}
             </div>}
@@ -363,8 +376,8 @@ export default function SelfStudy() {
             <button type="button" className="ghost-button" disabled={disabled} onClick={() => exportReport(false)}>開啟列印版</button>
           </div>
         </div>}
-        {(!grades || (!study.demo && (pending > 0 || !study.summary))) &&
-          <button className="primary-button" disabled={disabled || (!study.demo && (!canConnect || provider === 'mock'))}>{!grades ? '送出批改' : pending ? '重試待評題' : '重試產生總評'}</button>}
+        {(!grades || (!study.demo && (pending > 0 || missingFeedback || !study.summary))) &&
+          <button className="primary-button" disabled={disabled || (!study.demo && (!canConnect || provider === 'mock'))}>{!grades ? '送出批改' : pending ? '重試待評題' : missingFeedback ? '補產生逐題評語' : '重試產生總評'}</button>}
       </form>
     </section>}
     <dialog ref={analysisDialog} className="study-analysis-dialog" aria-labelledby="study-analysis-title" onCancel={event => event.preventDefault()}>

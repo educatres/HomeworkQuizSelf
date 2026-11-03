@@ -1,6 +1,6 @@
 import { round } from '../../domain/scoring'
 import type { Level, QuestionType, StudentExam } from '../../domain/types'
-import type { StudyGrade } from './grading'
+import { studyFeedback, type StudyGrade } from './grading'
 
 const types: Record<QuestionType, string> = { single_choice: '單選題', multiple_choice: '複選題', short_answer: '問答題' }
 const levels: Record<Level, string> = { comprehension: '理解', reasoning: '推理／應用', design_tradeoff: '設計取捨' }
@@ -28,7 +28,7 @@ function distribution<T extends string>(title: string, values: T[], labels: Reco
     <tbody>${rows.join('')}</tbody></table></section>`
 }
 
-function questionDetails(exam: StudentExam, answers: Record<string, string | string[]>, grades: StudyGrade[]) {
+function questionDetails(exam: StudentExam, answers: Record<string, string | string[]>, grades: StudyGrade[], demo: boolean) {
   const gradesById = new Map(grades.map(grade => [grade.question_id, grade]))
   return exam.questions.map((question, index) => {
     const answer = answers[question.question_id]
@@ -48,7 +48,7 @@ function questionDetails(exam: StudentExam, answers: Record<string, string | str
       <dl>
         <dt>你的作答</dt><dd class="answer-text">${escapeHtml(answerText || '未作答')}</dd>
         <dt>批改結果</dt><dd>${result}</dd>
-        ${grade?.feedback ? `<dt>逐題評語</dt><dd class="answer-text">${escapeHtml(grade.feedback)}</dd>` : ''}
+        ${grade ? `<dt>逐題評語</dt><dd class="answer-text">${escapeHtml(studyFeedback(grade, question.type, demo))}</dd>` : ''}
       </dl>
     </article>`
   }).join('')
@@ -116,7 +116,7 @@ export function makeStudyReport(
 ${distribution('題型配比', exam.questions.map(question => question.type), types)}
 ${distribution('理解層次比例分配', exam.questions.map(question => question.level), levels)}
 </div>
-<section><h2>題目與作答結果</h2>${questionDetails(exam, answers, grades)}</section>
+<section><h2>題目與作答結果</h2>${questionDetails(exam, answers, grades, demo)}</section>
 </body>
 </html>`
 }
