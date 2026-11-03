@@ -1,4 +1,4 @@
-﻿.study-shell { max-width: 56rem; margin: 0 auto; padding: 1.5rem 1rem 4rem; }
+.study-shell { width: 90%; margin: 0 auto; padding: 1.5rem 0 4rem; }
 .study-header { display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem; }
 .study-header img { width: 4.5rem; height: auto; }
 .study-header h1, .study-header p { margin: .25rem 0; }
@@ -10,7 +10,7 @@
 .study-question { margin: 1rem 0; border: 1px solid #b7c8cd; border-radius: .6rem; min-width: 0; padding: 1rem; }
 .study-question legend { font-weight: 700; padding: 0 .4rem; }
 .study-question p, .study-feedback p { white-space: pre-wrap; }
-.study-question textarea { width: 100%; resize: vertical; font: inherit; padding: .6rem; }
+.study-panel .field textarea, .study-question textarea { width: 100%; resize: vertical; font: inherit; padding: .6rem; }
 .study-option { display: block; padding: .4rem 0; }
 .study-feedback { margin: .75rem 0; background: #f0fdfa; color: #134e4a; padding: .8rem; border-radius: .5rem; }
 .study-examples { margin-bottom: 1rem; }
