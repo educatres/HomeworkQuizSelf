@@ -1,4 +1,4 @@
-﻿import { round } from '../../domain/scoring'
+import { round } from '../../domain/scoring'
 import type { Level, QuestionType, StudentExam } from '../../domain/types'
 import type { StudyGrade } from './grading'
 
@@ -12,22 +12,19 @@ function escapeHtml(value: string) {
 }
 
 function distribution<T extends string>(title: string, values: T[], labels: Record<T, string>) {
-  let offset = 0
-  const slices: string[] = []
   const rows = (Object.keys(labels) as T[]).map((key, index) => {
     const count = values.filter(value => value === key).length
     const share = values.length ? count / values.length * 100 : 0
     const color = colors[index]
-    if (share > 0) {
-      slices.push(`<circle cx="50" cy="50" r="25" fill="none" stroke="${color}" stroke-width="50" pathLength="100"
-        stroke-dasharray="${share} ${100 - share}" stroke-dashoffset="${-offset}" transform="rotate(-90 50 50)"/>`)
-      offset += share
-    }
-    return `<tr><th scope="row"><span class="swatch" style="--color:${color}"></span>${labels[key]}</th><td>${count}</td><td>${round(share, 1)}%</td></tr>`
+    return `<tr><th scope="row"><span class="swatch" style="--color:${color}"></span>${labels[key]}</th>
+      <td>${count}</td><td>${round(share, 1)}%</td>
+      <td class="bar-cell"><svg viewBox="0 0 100 8" preserveAspectRatio="none" aria-hidden="true">
+        <rect width="100" height="8" fill="#e2e8f0"/>
+        <rect width="${share}" height="8" fill="${color}"/>
+      </svg></td></tr>`
   })
   return `<section class="distribution"><h2>${title}</h2>
-    <svg viewBox="0 0 100 100" aria-hidden="true">${slices.join('')}</svg>
-    <table><thead><tr><th scope="col">分類</th><th scope="col">題數</th><th scope="col">比例</th></tr></thead>
+    <table><thead><tr><th scope="col">分類</th><th scope="col">題數</th><th scope="col">比例</th><th scope="col">0–100%</th></tr></thead>
     <tbody>${rows.join('')}</tbody></table></section>`
 }
 
@@ -54,7 +51,8 @@ export function makeStudyReport(exam: StudentExam, fileName: string, grades: Stu
   .summary { white-space: pre-wrap; }
   .charts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .8rem; }
   .distribution { border: 1px solid #94a3b8; border-radius: .4rem; padding: .7rem; break-inside: avoid; }
-  svg { display: block; width: 8rem; max-width: 100%; margin: .5rem auto; }
+  .bar-cell { width: 36%; }
+  .bar-cell svg { display: block; width: 100%; height: .65rem; }
   table { width: 100%; border-collapse: collapse; font-size: .9rem; }
   th, td { border-bottom: 1px solid #cbd5e1; text-align: left; padding: .25rem; }
   .swatch { display: inline-block; width: .75em; height: .75em; margin-right: .25em; background: var(--color); border: 1px solid var(--color); }
