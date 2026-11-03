@@ -81,6 +81,9 @@ export default function SelfStudy() {
   const [study, setStudy] = useState<Study>()
   const [loaded, setLoaded] = useState(false)
   const [busy, setBusy] = useState('')
+  const [analyzing, setAnalyzing] = useState(false)
+  const [connectionStatus, setConnectionStatus] = useState('')
+  const analysisDialog = useRef<HTMLDialogElement>(null)
   const [notice, setNotice] = useState('')
   const [storageWarning, setStorageWarning] = useState('')
   const writes = useRef(Promise.resolve())
@@ -122,6 +125,13 @@ export default function SelfStudy() {
     catch { setStorageWarning('無法儲存命題設定，請保持本頁開啟。') }
   }, [studyPlan])
 
+  useEffect(() => {
+    const dialog = analysisDialog.current
+    if (!dialog) return
+    if (analyzing && !dialog.open) dialog.showModal()
+    if (!analyzing && dialog.open) dialog.close()
+  }, [analyzing])
+
   function client() {
     return providerFor({ provider, apiKey: apiKey.trim(), model: connection.model.trim(), baseUrl: DEFAULT_BASE_URLS[provider] })
   }
@@ -134,13 +144,14 @@ export default function SelfStudy() {
     return apiKey.trim() ? classifyProviderError(error).replaceAll(apiKey.trim(), '[已隱藏]') : classifyProviderError(error)
   }
 
-  async function run(label: string, work: () => Promise<void>) {
+  async function run(label: string, work: () => Promise<void>, lockScreen = false) {
     if (action.current || !loaded) return
     action.current = true
     setBusy(label)
+    setAnalyzing(lockScreen)
     setNotice('')
     try { await work() } catch (error) { setNotice(errorMessage(error)) }
-    finally { action.current = false; setBusy('') }
+    finally { action.current = false; setBusy(''); setAnalyzing(false) }
   }
 
   async function selectFile(files: FileList | null) {
@@ -184,7 +195,7 @@ export default function SelfStudy() {
       const bundle = demo ? await makeDemoBundle(study.source, plan, 'self')
         : await generateExamWithProvider(study.source, plan, 'self', client(), (completed, total) => setBusy(`出題中（${completed}/${total}）…`))
       setStudy({ ...study, bundle, demo })
-    })
+    }, provider !== 'mock')
   }
 
   async function grade() {
@@ -213,7 +224,7 @@ export default function SelfStudy() {
           setNotice(`總評產生失敗。${errorMessage(error)}`)
         }
       }
-    })
+    }, !study.demo)
   }
 
   function exportReport(download: boolean) {
@@ -239,18 +250,19 @@ export default function SelfStudy() {
           const next = e.target.value
           if (!isEnabledProvider(next)) return
           setConnection({ provider: next, model: defaults[next] })
-          setApiKey(''); setRemember(false); setModels([]); setNotice('')
+          setApiKey(''); setRemember(false); setModels([]); setNotice(''); setConnectionStatus('')
         }}>{Object.entries(providers).map(([id, name]) => <option key={id} value={id} disabled={!isEnabledProvider(id)}>{name}</option>)}</select></label>
         {activeKey && <>
-          <label className="field"><span>API Key</span><input type="password" value={apiKey} autoComplete="off" onChange={e => { setApiKey(e.target.value); setConnection({ provider, model: defaults[provider] }); setModels([]); setNotice('') }} /></label>
+          <label className="field"><span>API Key</span><input type="password" value={apiKey} autoComplete="off" onChange={e => { setApiKey(e.target.value); setConnection({ provider, model: defaults[provider] }); setModels([]); setNotice(''); setConnectionStatus('') }} /></label>
           {models.length > 0 && <label className="field"><span>模型</span>
-            <select value={connection.model} onChange={e => setConnection({ provider, model: e.target.value })}>
+            <select value={connection.model} onChange={e => { setConnection({ provider, model: e.target.value }); setConnectionStatus('') }}>
               {models.map(model => <option key={model.id} value={model.id}>{model.displayName}（{model.id}）</option>)}
             </select>
           </label>}
           <label><input type="checkbox" checked={remember} onChange={e => setRemember(e.target.checked)} /> 記住金鑰（儲存在此瀏覽器，同源程式可讀取）</label>
           <div className="study-actions">
             <button type="button" className="ghost-button" disabled={!apiKey.trim()} onClick={() => void run('讀取模型中…', async () => {
+              setConnectionStatus('')
               const ai = client()
               const available = await ai.listModels?.() ?? []
               const visible = provider === 'cgu' ? available.filter(model => CGU_ALLOWED_MODELS.some(id => id === model.id)) : available
@@ -259,12 +271,18 @@ export default function SelfStudy() {
               setNotice(visible.length ? `已讀取 ${visible.length} 個模型。可在模型欄選擇。` : '連線可達，但未列出可選模型。')
             })}>讀取模型</button>
             <button type="button" className="ghost-button" disabled={!canConnect} onClick={() => void run('測試連線中…', async () => {
-              await client().complete('請只回覆 OK。', '只回覆 OK。')
-              setNotice('模型連線測試成功。')
+              setConnectionStatus('測試連線中…')
+              try {
+                await client().complete('請只回覆 OK。', '只回覆 OK。')
+                setConnectionStatus('模型連線測試成功。')
+              } catch (error) {
+                setConnectionStatus(`測試失敗。${errorMessage(error)}`)
+              }
             })}>測試連線</button>
-            <button type="button" className="ghost-button" onClick={() => { setApiKey(''); setRemember(false); setConnection({ provider, model: defaults[provider] }); setModels([]); setNotice('') }}>清除 API Key</button>
+            <button type="button" className="ghost-button" onClick={() => { setApiKey(''); setRemember(false); setConnection({ provider, model: defaults[provider] }); setModels([]); setNotice(''); setConnectionStatus('') }}>清除 API Key</button>
           </div>
           {provider === 'google' && <a href="./google-ai-studio-api-key-guide.html" target="_blank" rel="noreferrer">Google AI Studio 金鑰申請指南</a>}
+          <p className="study-connection-status" role="status">{connectionStatus}</p>
         </>}
       </fieldset>
       <p className="muted">檔案由此瀏覽器解析。AI 出題與批改會將必要的作業文字及答案傳給所選供應商。金鑰預設只在本頁使用。</p>
@@ -349,5 +367,9 @@ export default function SelfStudy() {
           <button className="primary-button" disabled={disabled || (!study.demo && (!canConnect || provider === 'mock'))}>{!grades ? '送出批改' : pending ? '重試待評題' : '重試產生總評'}</button>}
       </form>
     </section>}
+    <dialog ref={analysisDialog} className="study-analysis-dialog" aria-labelledby="study-analysis-title" onCancel={event => event.preventDefault()}>
+      <strong id="study-analysis-title">AI分析中，請勿關閉</strong>
+      <p role="status">{analyzing ? busy : ''}</p>
+    </dialog>
   </main>
 }
