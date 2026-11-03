@@ -1,4 +1,4 @@
-﻿import { readStudyPlan, StudyPlanPanel } from './StudyPlanPanel'
+import { readStudyPlan, StudyPlanPanel } from './StudyPlanPanel'
 import { EXAMPLE_BUTTONS, EXAMPLE_SETS, type ExampleKind } from '../features/examples/assignments'
 import { useEffect, useRef, useState } from 'react'
 import { round } from '../domain/scoring'
@@ -17,7 +17,7 @@ import '../styles.css'
 import './selfStudy.css'
 
 const providers: Record<AppProvider, string> = {
-  google: 'Google AI Studio', cgu: 'CGU', openai: 'OpenAI', xai: 'Grok（xAI）', mock: '離線示範',
+  google: 'Google AI Studio', cgu: 'CGU', openai: 'OpenAI（尚未開放）', xai: 'Grok（尚未開放）', mock: '離線示範',
 }
 const defaults: Record<AppProvider, string> = {
   google: GOOGLE_DEFAULT_MODEL, cgu: CGU_DEFAULT_MODEL, openai: '', xai: '', mock: '',
@@ -32,14 +32,28 @@ function readStorage(key: string) {
   try { return localStorage.getItem(key) ?? '' } catch { return '' }
 }
 
+function isEnabledProvider(provider: unknown): provider is 'google' | 'cgu' | 'mock' {
+  return provider === 'google' || provider === 'cgu' || provider === 'mock'
+}
+
 function readConnection() {
   try {
-    const saved = JSON.parse(readStorage(settingsKey))
-    if (Object.prototype.hasOwnProperty.call(providers, saved.provider) && typeof saved.model === 'string') {
-      return { provider: saved.provider as AppProvider, model: saved.model as string }
+    const saved: { provider?: unknown; model?: unknown } | null = JSON.parse(readStorage(settingsKey))
+    if (isEnabledProvider(saved?.provider) && typeof saved.model === 'string') {
+      const provider = saved.provider
+      const model = saved.model.trim()
+      return { provider, model: provider === 'cgu' && !CGU_ALLOWED_MODELS.some(id => id === model) ? CGU_DEFAULT_MODEL : model || defaults[provider] }
     }
   } catch { /* start with the default */ }
   return { provider: 'google' as AppProvider, model: GOOGLE_DEFAULT_MODEL }
+}
+
+function readRememberedKey() {
+  try {
+    const saved: { provider?: unknown; model?: unknown } | null = JSON.parse(readStorage(settingsKey))
+    if (isEnabledProvider(saved?.provider) && saved.provider !== 'mock') return readStorage(keyName)
+  } catch { /* ignore settings that cannot be restored */ }
+  return ''
 }
 
 type Study = {
@@ -56,8 +70,8 @@ const questionLabels = { single_choice: '單選', multiple_choice: '複選', sho
 
 export default function SelfStudy() {
   const [connection, setConnection] = useState(readConnection)
-  const [apiKey, setApiKey] = useState(() => readStorage(keyName))
-  const [remember, setRemember] = useState(() => Boolean(readStorage(keyName)))
+  const [apiKey, setApiKey] = useState(readRememberedKey)
+  const [remember, setRemember] = useState(() => Boolean(apiKey))
   const [models, setModels] = useState<ModelInfo[]>([])
   const [studyPlan, setStudyPlan] = useState(() => {
     try { return readStudyPlan(JSON.parse(readStorage(studyPlanKey))) }
@@ -216,15 +230,18 @@ export default function SelfStudy() {
       <h2>1. 連接 AI</h2>
       <fieldset disabled={disabled} className="study-fields">
         <label className="field"><span>AI 供應商</span><select value={provider} onChange={e => {
-          const next = e.target.value as AppProvider
+          const next = e.target.value
+          if (!isEnabledProvider(next)) return
           setConnection({ provider: next, model: defaults[next] })
           setApiKey(''); setRemember(false); setModels([]); setNotice('')
-        }}>{Object.entries(providers).map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select></label>
+        }}>{Object.entries(providers).map(([id, name]) => <option key={id} value={id} disabled={!isEnabledProvider(id)}>{name}</option>)}</select></label>
         {activeKey && <>
-          <label className="field"><span>API Key</span><input type="password" value={apiKey} autoComplete="off" onChange={e => { setApiKey(e.target.value); setModels([]); setNotice('') }} /></label>
-          {provider === 'cgu'
-            ? <label className="field"><span>模型</span><select value={connection.model} onChange={e => setConnection({ provider, model: e.target.value })}>{CGU_ALLOWED_MODELS.map(id => <option key={id}>{id}</option>)}</select></label>
-            : <label className="field"><span>模型 ID</span><input list="study-models" value={connection.model} onChange={e => setConnection({ provider, model: e.target.value })} /><datalist id="study-models">{models.map(model => <option key={model.id} value={model.id}>{model.displayName}</option>)}</datalist></label>}
+          <label className="field"><span>API Key</span><input type="password" value={apiKey} autoComplete="off" onChange={e => { setApiKey(e.target.value); setConnection({ provider, model: defaults[provider] }); setModels([]); setNotice('') }} /></label>
+          {models.length > 0 && <label className="field"><span>模型</span>
+            <select value={connection.model} onChange={e => setConnection({ provider, model: e.target.value })}>
+              {models.map(model => <option key={model.id} value={model.id}>{model.displayName}（{model.id}）</option>)}
+            </select>
+          </label>}
           <label><input type="checkbox" checked={remember} onChange={e => setRemember(e.target.checked)} /> 記住金鑰（儲存在此瀏覽器，同源程式可讀取）</label>
           <div className="study-actions">
             <button type="button" className="ghost-button" disabled={!apiKey.trim()} onClick={() => void run('讀取模型中…', async () => {
@@ -232,14 +249,14 @@ export default function SelfStudy() {
               const available = await ai.listModels?.() ?? []
               const visible = provider === 'cgu' ? available.filter(model => CGU_ALLOWED_MODELS.some(id => id === model.id)) : available
               setModels(visible)
-              if (visible.length && !visible.some(model => model.id === connection.model)) setConnection({ provider, model: visible[0].id })
+              if (!visible.some(model => model.id === connection.model)) setConnection({ provider, model: visible[0]?.id ?? defaults[provider] })
               setNotice(visible.length ? `已讀取 ${visible.length} 個模型。可在模型欄選擇。` : '連線可達，但未列出可選模型。')
             })}>讀取模型</button>
             <button type="button" className="ghost-button" disabled={!canConnect} onClick={() => void run('測試連線中…', async () => {
               await client().complete('請只回覆 OK。', '只回覆 OK。')
               setNotice('模型連線測試成功。')
             })}>測試連線</button>
-            <button type="button" className="ghost-button" onClick={() => { setApiKey(''); setRemember(false); setModels([]); setNotice('') }}>清除 API Key</button>
+            <button type="button" className="ghost-button" onClick={() => { setApiKey(''); setRemember(false); setConnection({ provider, model: defaults[provider] }); setModels([]); setNotice('') }}>清除 API Key</button>
           </div>
           {provider === 'google' && <a href="./google-ai-studio-api-key-guide.html" target="_blank" rel="noreferrer">Google AI Studio 金鑰申請指南</a>}
         </>}
