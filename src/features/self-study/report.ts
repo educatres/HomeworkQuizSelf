@@ -1,5 +1,5 @@
 import { round } from '../../domain/scoring'
-import type { Level, QuestionType, StudentExam } from '../../domain/types'
+import type { Level, QuestionType, StudentExam, TeacherAnswerKey } from '../../domain/types'
 import { studyFeedback, type StudyGrade } from './grading'
 
 const types: Record<QuestionType, string> = { single_choice: '單選題', multiple_choice: '複選題', short_answer: '問答題' }
@@ -28,7 +28,8 @@ function distribution<T extends string>(title: string, values: T[], labels: Reco
     <tbody>${rows.join('')}</tbody></table></section>`
 }
 
-function questionDetails(exam: StudentExam, answers: Record<string, string | string[]>, grades: StudyGrade[], demo: boolean) {
+function questionDetails(exam: StudentExam, key: TeacherAnswerKey, answers: Record<string, string | string[]>, grades: StudyGrade[], demo: boolean) {
+  const referencesById = new Map(key.questions.map(question => [question.question_id, question.answer]))
   const gradesById = new Map(grades.map(grade => [grade.question_id, grade]))
   return exam.questions.map((question, index) => {
     const answer = answers[question.question_id]
@@ -39,6 +40,9 @@ function questionDetails(exam: StudentExam, answers: Record<string, string | str
       return option ? `${id}. ${option.text}` : id
     }
     const answerText = question.type === 'short_answer' ? selected.join('\n') : selected.map(optionText).join('\n')
+    const reference = referencesById.get(question.question_id)
+    const referenceValues = Array.isArray(reference) ? reference : reference ? [reference] : []
+    const referenceText = question.type === 'short_answer' ? referenceValues.join('\n') : referenceValues.map(optionText).join('\n')
     const options = question.options?.map(option => `<li>${escapeHtml(optionText(option.id))}</li>`).join('')
     const result = grade?.earned_points == null ? '待評' : `${grade.earned_points} / ${question.points} 分`
     return `<article class="question-detail">
@@ -47,6 +51,8 @@ function questionDetails(exam: StudentExam, answers: Record<string, string | str
       ${options ? `<ul class="question-options">${options}</ul>` : ''}
       <dl>
         <dt>你的作答</dt><dd class="answer-text">${escapeHtml(answerText || '未作答')}</dd>
+        <dt>${question.type === 'short_answer' ? '參考答案' : '標準答案'}</dt>
+        <dd class="answer-text">${escapeHtml(referenceText || '未提供')}</dd>
         <dt>批改結果</dt><dd>${result}</dd>
         ${grade ? `<dt>逐題評語</dt><dd class="answer-text">${escapeHtml(studyFeedback(grade, question.type, demo))}</dd>` : ''}
       </dl>
@@ -56,6 +62,7 @@ function questionDetails(exam: StudentExam, answers: Record<string, string | str
 
 export function makeStudyReport(
   exam: StudentExam,
+  key: TeacherAnswerKey,
   fileName: string,
   answers: Record<string, string | string[]>,
   grades: StudyGrade[],
@@ -116,7 +123,7 @@ export function makeStudyReport(
 ${distribution('題型配比', exam.questions.map(question => question.type), types)}
 ${distribution('理解層次比例分配', exam.questions.map(question => question.level), levels)}
 </div>
-<section><h2>題目與作答結果</h2>${questionDetails(exam, answers, grades, demo)}</section>
+<section><h2>題目與作答結果</h2>${questionDetails(exam, key, answers, grades, demo)}</section>
 </body>
 </html>`
 }

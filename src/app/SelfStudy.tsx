@@ -241,8 +241,8 @@ export default function SelfStudy() {
   }
 
   function exportReport(download: boolean) {
-    if (!study || !exam || !grades) return
-    openStudyReport(makeStudyReport(exam, study.source.file_name, study.answers, grades, study.summary, Boolean(study.demo)), download)
+    if (!study?.bundle || !exam || !grades) return
+    openStudyReport(makeStudyReport(exam, study.bundle.key, study.source.file_name, study.answers, grades, study.summary, Boolean(study.demo)), download)
   }
 
   function answer(questionId: string, value: string | string[]) {
