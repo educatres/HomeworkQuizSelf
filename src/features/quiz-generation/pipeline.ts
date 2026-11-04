@@ -1,9 +1,9 @@
-﻿import { publicQuizHash } from '../../domain/canonical'
+import { publicQuizHash } from '../../domain/canonical'
 import { validateStudentExam } from '../../domain/validation'
 import type { BatchPlan, Difficulty, Level, PublicQuestion, QuestionType, RubricCriterion, SourceDocument, SourceRef, TeacherAnswerKey } from '../../domain/types'
 import type { LlmProvider } from '../../providers/types'
 import { buildQuestionPrompt, buildQuestionRepairPrompt, SYSTEM_PROMPT } from './prompts'
-import { allocateByLargestRemainder, makeQuotas } from './plan'
+import { allocateByLargestRemainder, allocatePoints, makeQuotas } from './plan'
 import { detectPromptInjectionInSource } from '../../domain/promptSecurity'
 
 const QUESTION_TYPES: QuestionType[] = ['single_choice', 'multiple_choice', 'short_answer']
@@ -132,8 +132,8 @@ export async function generateQuestionsByPlan(source: SourceDocument, plan: Batc
 export async function generateExamWithProvider(source: SourceDocument, plan: BatchPlan, studentId: string, provider: LlmProvider, onProgress?: (completed: number, total: number) => void, retryHint = '') {
   const generated = await generateQuestionsByPlan(source, plan, provider, onProgress, retryHint)
   if (generated.questions.length !== plan.question_count) throw new Error(`AI 只產生 ${generated.questions.length}/${plan.question_count} 題，請重試或人工補題。`)
-  const points = 100 / generated.questions.length
-  const publicBase = { schema_version: '1.0' as const, batch_id: plan.batch_id, student_id: studentId, quiz_id: `${plan.batch_id}-${studentId}-${Date.now().toString(36)}`, exam_version: 1, course_title: plan.course_title, assignment_title: plan.assignment_title, language: plan.language, total_points: plan.total_points, questions: generated.questions.map((q, i) => ({ ...q, points: i === generated.questions.length - 1 ? plan.total_points - points * (generated.questions.length - 1) : points })) }
+  const points = allocatePoints(generated.questions.length, plan.total_points)
+  const publicBase = { schema_version: '1.0' as const, batch_id: plan.batch_id, student_id: studentId, quiz_id: `${plan.batch_id}-${studentId}-${Date.now().toString(36)}`, exam_version: 1, course_title: plan.course_title, assignment_title: plan.assignment_title, language: plan.language, total_points: plan.total_points, questions: generated.questions.map((q, i) => ({ ...q, points: points[i] })) }
   const hash = await publicQuizHash(publicBase)
   const exam = { ...publicBase, public_quiz_hash: hash }
   const validation = validateStudentExam(exam)

@@ -330,9 +330,12 @@ export default function SelfStudy() {
     </section>
     <section className="panel study-panel">
       <h2>3. 題型配比與理解層次</h2>
-      <StudyPlanPanel plan={studyPlan} setPlan={setStudyPlan} disabled={disabled} />
-      {!exam ? <button className="primary-button" disabled={disabled || !study || !canConnect} onClick={() => void generate()}>產生練習</button>
-        : <p className="muted">變更會套用到下一次出題。</p>}
+      <form onSubmit={event => { event.preventDefault(); void generate() }}>
+        <StudyPlanPanel plan={studyPlan} setPlan={setStudyPlan} disabled={disabled} />
+        {!exam ? <button type="submit" className="primary-button" disabled={disabled || !study || !canConnect}>產生練習</button>
+          : <p className="muted">變更會套用到下一次出題。</p>}
+      </form>
+
     </section>
     <div className="study-status" role="status" aria-live="polite">{[busy, notice, storageWarning].filter(Boolean).join(' ')}</div>
     {exam && <section className="panel study-panel">

@@ -22,3 +22,6 @@
 .study-analysis-dialog::backdrop { background: rgb(15 23 42 / 65%); }
 .study-analysis-dialog p { margin: .5rem 0 0; }
 html:has(.study-analysis-dialog[open]) { overflow: hidden; }
+.study-question-count { margin-bottom: 1rem; }
+.study-question-count input { max-width: 12rem; }
+.study-question-count button[aria-pressed="true"] { background: #e6fffa; border-color: #0f766e; color: #115e59; }

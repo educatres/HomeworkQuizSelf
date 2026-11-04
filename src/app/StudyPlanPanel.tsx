@@ -1,15 +1,25 @@
-﻿import { useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import { TriplePercentageSlider, normalizeValues } from '../components/TriplePercentageSlider'
 import { DEFAULT_PLAN, type BatchPlan } from '../domain/types'
 
-export type StudyPlan = Pick<BatchPlan, 'type_weights' | 'level_weights' | 'teacher_guidance'>
+export type StudyPlan = Pick<BatchPlan, 'question_count' | 'type_weights' | 'level_weights' | 'teacher_guidance'>
+
+const presets = [2, 5, 10]
+const maxQuestions = 100
+
+function validQuestionCount(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= maxQuestions
+}
 
 export function readStudyPlan(value: unknown): StudyPlan {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('命題組態必須是 JSON 物件。')
   const raw = value as Partial<StudyPlan> & { schema_version?: unknown }
   if (raw.schema_version !== undefined && raw.schema_version !== '1.0') throw new Error('不支援此命題組態版本。')
-  if (!raw.type_weights && !raw.level_weights && typeof raw.teacher_guidance !== 'string') {
-    throw new Error('組態缺少題型配比、理解層次或命題指導。')
+  if (raw.question_count !== undefined && !validQuestionCount(raw.question_count)) {
+    throw new Error(`題目數量必須是 1 到 ${maxQuestions} 的整數。`)
+  }
+  if (raw.question_count === undefined && !raw.type_weights && !raw.level_weights && typeof raw.teacher_guidance !== 'string') {
+    throw new Error('組態缺少題數、題型配比、理解層次或命題指導。')
   }
   function readWeights<T extends Record<string, number>>(defaults: T, candidate: T | undefined): T {
     if (candidate === undefined) return defaults
@@ -23,6 +33,7 @@ export function readStudyPlan(value: unknown): StudyPlan {
     return Object.fromEntries(keys.map((key, index) => [key, normalized[index]])) as T
   }
   return {
+    question_count: raw.question_count ?? DEFAULT_PLAN.question_count,
     type_weights: readWeights(DEFAULT_PLAN.type_weights, raw.type_weights),
     level_weights: readWeights(DEFAULT_PLAN.level_weights, raw.level_weights),
     teacher_guidance: typeof raw.teacher_guidance === 'string' ? raw.teacher_guidance : '',
@@ -36,6 +47,7 @@ export function StudyPlanPanel({ plan, setPlan, disabled }: {
 }) {
   const input = useRef<HTMLInputElement>(null)
   const [message, setMessage] = useState('')
+  const [invalidCount, setInvalidCount] = useState<string | null>(null)
   function updatePlan<K extends keyof StudyPlan>(key: K, value: StudyPlan[K]) {
     setPlan({ ...plan, [key]: value })
   }
@@ -50,20 +62,42 @@ export function StudyPlanPanel({ plan, setPlan, disabled }: {
   async function importConfig(file: File) {
     try {
       setPlan(readStudyPlan(JSON.parse(await file.text())))
+      setInvalidCount(null)
       setMessage('已匯入命題方向組態，會用於下一次出題。')
     } catch (error) {
       setMessage(error instanceof SyntaxError ? '檔案不是有效的 JSON。' : (error as Error).message)
     }
   }
-  return <><div className="plan-options"><div className="weight-editor"><h3>題型配比</h3><div className="type-guide"><p>題型決定學生如何呈現自己的理解；「理解層次」則決定題目要檢查多深入。兩者可以交叉搭配，不必固定一對一對應。</p><ul><li><strong>單選題</strong><span>適合檢核作業中的內容、觀念、流程或基本因果關係。答案明確時，可由系統進行一致的本地評分。</span></li><li><strong>複選題</strong><span>適合檢核多個條件、步驟、限制或影響是否同時成立。</span></li><li><strong>簡答題</strong><span>適合要求學生說明推理依據、條件改變後的影響、方法限制，或比較不同方案的設計取捨。AI 可依 rubric 協助分析，但低信心、答案有歧義或涉及評量公平性時，建議由教師人工覆核。</span></li></ul><p className="type-guide-note">「內容與觀念」通常適合用單選題快速確認；「脈絡與推理」可以使用複選題或簡答題；「設計取捨」通常較適合簡答題，讓學生說明選擇某種方法的理由、限制與可能替代方案。</p></div><TriplePercentageSlider values={[plan.type_weights.single_choice, plan.type_weights.multiple_choice, plan.type_weights.short_answer]} labels={['單選題', '複選題', '簡答題']} colors={['#4285E8', '#20AD87', '#F3AC40']} initialValues={[40, 20, 40]} disabled={disabled} onChange={values => updatePlan('type_weights', { ...plan.type_weights, single_choice: values[0], multiple_choice: values[1], short_answer: values[2] })} /><small>三種題型會依 5% 刻度連動，總和固定為 100%。</small></div><div className="weight-editor"><h3>理解層次</h3><div className="level-guide"><p>題目會從三個層次檢查學生是否真正理解自己的作業：先看能否讀懂內容，再看能否連結證據進行推論，最後看能否說明做法背後的選擇與理由。</p><ol><li><strong>理解：內容與觀念</strong><span>指出作業中實際採用的做法、觀念或流程，並說明它的作用。範例：在「校園垃圾分類問卷調查」中，哪一項屬於研究實際採用的問卷資料處理方式？</span></li><li><strong>推理：脈絡與證據</strong><span>把不同段落、研究結果或流程連結起來，根據作業中的證據推導合理結論。範例：哪一項調查發現最能支持「應先增加回收點」這個建議？請說明兩者的關聯。</span></li><li><strong>設計取捨：選擇與理由</strong><span>說明作者為什麼採用某種方法、考量哪些限制，以及改用其他方法可能產生的影響。範例：作者為什麼選擇問卷調查，而不是實地觀察？這個選擇帶來哪些優點與限制？</span></li></ol><p className="level-guide-note">大部分學生能回答第一層；真正拉開理解差距的是後兩層：能否說明結論為什麼成立，以及為什麼採用這個做法。</p></div><TriplePercentageSlider values={[plan.level_weights.comprehension, plan.level_weights.reasoning, plan.level_weights.design_tradeoff]} labels={['理解', '推理', '設計取捨']} colors={['#4285E8', '#20AD87', '#F3AC40']} disabled={disabled} onChange={values => updatePlan('level_weights', { ...plan.level_weights, comprehension: values[0], reasoning: values[1], design_tradeoff: values[2] })} /><small>三個層次會依 5% 刻度連動，總和固定為 100%。</small></div></div>
+  return <>
+    <div className="study-question-count">
+      <label className="field"><span>題目數量（可自訂）</span>
+        <input type="number" min={1} max={maxQuestions} step={1} required disabled={disabled}
+          aria-invalid={invalidCount !== null} value={invalidCount ?? plan.question_count} onChange={event => {
+            const count = event.currentTarget.valueAsNumber
+            if (validQuestionCount(count)) {
+              setInvalidCount(null)
+              updatePlan('question_count', count)
+            } else setInvalidCount(event.currentTarget.value)
+          }} />
+      </label>
+      <div className="study-actions" aria-label="預設題目數量">
+        {presets.map(count => <button type="button" key={count} className="ghost-button" disabled={disabled}
+          aria-pressed={invalidCount === null && count === plan.question_count} onClick={() => {
+            setInvalidCount(null)
+            updatePlan('question_count', count)
+          }}>{count} 題</button>)}
+      </div>
+      <small>可輸入 1 到 {maxQuestions} 的整數。題數較少時，部分題型或理解層次可能分配不到題目。</small>
+    </div>
+    <div className="plan-options"><div className="weight-editor"><h3>題型配比</h3><div className="type-guide"><p>題型決定學生如何呈現自己的理解；「理解層次」則決定題目要檢查多深入。兩者可以交叉搭配，不必固定一對一對應。</p><ul><li><strong>單選題</strong><span>適合檢核作業中的內容、觀念、流程或基本因果關係。答案明確時，可由系統進行一致的本地評分。</span></li><li><strong>複選題</strong><span>適合檢核多個條件、步驟、限制或影響是否同時成立。</span></li><li><strong>簡答題</strong><span>適合要求學生說明推理依據、條件改變後的影響、方法限制，或比較不同方案的設計取捨。AI 可依 rubric 協助分析，但低信心、答案有歧義或涉及評量公平性時，建議由教師人工覆核。</span></li></ul><p className="type-guide-note">「內容與觀念」通常適合用單選題快速確認；「脈絡與推理」可以使用複選題或簡答題；「設計取捨」通常較適合簡答題，讓學生說明選擇某種方法的理由、限制與可能替代方案。</p></div><TriplePercentageSlider values={[plan.type_weights.single_choice, plan.type_weights.multiple_choice, plan.type_weights.short_answer]} labels={['單選題', '複選題', '簡答題']} colors={['#4285E8', '#20AD87', '#F3AC40']} initialValues={[40, 20, 40]} disabled={disabled} onChange={values => updatePlan('type_weights', { ...plan.type_weights, single_choice: values[0], multiple_choice: values[1], short_answer: values[2] })} /><small>三種題型會依 5% 刻度連動，總和固定為 100%。</small></div><div className="weight-editor"><h3>理解層次</h3><div className="level-guide"><p>題目會從三個層次檢查學生是否真正理解自己的作業：先看能否讀懂內容，再看能否連結證據進行推論，最後看能否說明做法背後的選擇與理由。</p><ol><li><strong>理解：內容與觀念</strong><span>指出作業中實際採用的做法、觀念或流程，並說明它的作用。範例：在「校園垃圾分類問卷調查」中，哪一項屬於研究實際採用的問卷資料處理方式？</span></li><li><strong>推理：脈絡與證據</strong><span>把不同段落、研究結果或流程連結起來，根據作業中的證據推導合理結論。範例：哪一項調查發現最能支持「應先增加回收點」這個建議？請說明兩者的關聯。</span></li><li><strong>設計取捨：選擇與理由</strong><span>說明作者為什麼採用某種方法、考量哪些限制，以及改用其他方法可能產生的影響。範例：作者為什麼選擇問卷調查，而不是實地觀察？這個選擇帶來哪些優點與限制？</span></li></ol><p className="level-guide-note">大部分學生能回答第一層；真正拉開理解差距的是後兩層：能否說明結論為什麼成立，以及為什麼採用這個做法。</p></div><TriplePercentageSlider values={[plan.level_weights.comprehension, plan.level_weights.reasoning, plan.level_weights.design_tradeoff]} labels={['理解', '推理', '設計取捨']} colors={['#4285E8', '#20AD87', '#F3AC40']} disabled={disabled} onChange={values => updatePlan('level_weights', { ...plan.level_weights, comprehension: values[0], reasoning: values[1], design_tradeoff: values[2] })} /><small>三個層次會依 5% 刻度連動，總和固定為 100%。</small></div></div>
     <label className="field"><span>命題指導（選填）</span>
       <textarea rows={3} value={plan.teacher_guidance} disabled={disabled} onChange={e => updatePlan('teacher_guidance', e.target.value)} />
     </label>
     <div className="plan-config-panel">
       <h3>命題方向組態</h3>
-      <p>可沿用舊版組態中的題型配比、理解層次與命題指導。下載的 JSON 只包含這三項設定。</p>
+      <p>可匯入或下載題目數量、題型配比、理解層次與命題指導。</p>
       <div className="plan-config-actions">
-        <button type="button" className="ghost-button" disabled={disabled} onClick={download}>下載命題方向組態</button>
+        <button type="button" className="ghost-button" disabled={disabled || invalidCount !== null} onClick={download}>下載命題方向組態</button>
         <button type="button" className="ghost-button" disabled={disabled} onClick={() => input.current?.click()}>匯入命題方向組態</button>
         <input ref={input} type="file" accept=".json,application/json" disabled={disabled} hidden onChange={e => {
           const file = e.currentTarget.files?.[0]
